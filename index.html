@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>flygame</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		body {
+			margin: 0;
+		}
+		canvas {
+			margin: auto;
+		}
+	</style>
+</head>
+<body>
+
+<div id='app'></div>
+
+<script src='phaser.min.js'></script>
+<script>
+	var background;
+	var clouds;
+	var bullets;
+	var enemyBullets;
+	var player;
+	var enemyGroups = [];
+	var explosions;
+	var livingEnemies = [];
+
+	var cursors;
+	var firing = false;
+
+	var score = 0;
+	var scoreString = 'Score: ';
+	var scoreText;
+	var stateText;
+
+	var enemyFireCooldown = 0;
+	var fireCooldown = 300;
+	var nextFireTime = 0;
+	var nextWaveCooldown = 1500;
+	var nextWaveTime = 0;
+
+	var width = window.innerWidth || document.documentElement.clientWidth;
+    var height = window.innerHeight || document.documentElement.clientHeight;
+    if (width > 300) width = 300;
+    var scale = height / 500;
+
+	var game = new Phaser.Game(width, height, Phaser.AUTO, 'app', {
+		preload: preload,
+		create: create,
+		update: update,
+		render: render
+	});
+
+	function preload() {
+		game.load.image('finn', 'assets/finn_kid.png');
+		game.load.image('sky', 'assets/sky.png');
+		game.load.image('clouds', 'assets/clouds2.png');
+		game.load.image('sword', 'assets/sword.png');
+		game.load.image('vinyl', 'assets/vinyl.png');
+		game.load.image('partygod', 'assets/partygod2.png');
+		game.load.spritesheet('explosion', 'assets/explosion_sprt.png', 100, 74);
+	}
+
+	function create() {
+		game.physics.startSystem(Phaser.Physics.ARCADE);
+
+		background = game.add.tileSprite(0, 0, game.world.bounds.width, game.world.bounds.height, 'sky');
+		clouds = game.add.tileSprite(0, 0, game.world.bounds.width, game.world.bounds.height, 'clouds');
+
+		// Bullets
+		bullets = game.add.group();
+		bullets.enableBody = true;
+		bullets.physicsBodyType = Phaser.Physics.ARCADE;
+		bullets.createMultiple(30, 'sword');
+		bullets.setAll('anchor.x', 0.5);
+		bullets.setAll('anchor.y', 1);
+		bullets.setAll('outOfBoundsKill', true);
+		bullets.setAll('checkWorldBounds', true);
+
+		// Enemy bullets
+		enemyBullets = game.add.group();
+		enemyBullets.enableBody = true;
+		enemyBullets.physicsBodyType = Phaser.Physics.ARCADE;
+		enemyBullets.createMultiple(30, 'vinyl');
+		enemyBullets.setAll('anchor.x', 0.5);
+		enemyBullets.setAll('anchor.y', 1);
+		enemyBullets.setAll('outOfBoundsKill', true);
+		enemyBullets.setAll('checkWorldBounds', true);
+
+		// Player
+		player = game.add.sprite(game.world.bounds.width/2, game.world.bounds.height-100, 'finn');
+		player.scale.setTo(scale, scale);
+		player.anchor.setTo(0.5, 0.5);
+		player.inputEnabled = true;
+		player.input.enableDrag();
+		player.input.allowVerticalDrag = false;
+		player.events.onDragStart.addOnce(function() {
+			firing = true;
+		}, this);
+		game.physics.enable(player, Phaser.Physics.ARCADE);
+
+		// Enemies
+		spawnEnemies();
+
+		// Score
+		scoreText = game.add.text(10, 10, scoreString + score, {font: '16px Arial', fill: '#555'});
+		stateText = game.add.text(game.world.centerX, game.world.centerY, ' ', {font: '34px Arial', fill: '#555'});
+		stateText.anchor.setTo(0.5, 0.5);
+		stateText.visible = false;
+
+		explosions = game.add.group();
+		explosions.createMultiple(30, 'explosion');
+		explosions.forEach(setupEnemy, this);
+
+		cursors = game.input.keyboard.createCursorKeys();
+	}
+
+	function spawnEnemies() {
+		var enemyLine = game.add.group();
+		enemyLine.x = 0;
+		enemyLine.y = 0;
+		enemyLine.enableBody = true;
+		enemyLine.physicsBodyType = Phaser.Physics.ARCADE;
+
+		for (var x = 0; x < 4; x++) {
+			var enemy = enemyLine.create(x * 100, 50, 'partygod')
+			enemy.anchor.setTo(0.5, 0.5);
+			enemy.animations.add('fly', [0,1,2,3], 20, true);
+			enemy.play('fly')
+			enemy.body.moves = false;
+		}
+
+		enemyGroups.push(enemyLine);
+
+		var tween = game.add.tween(enemyLine).to({y:game.world.bounds.height}, 2000, Phaser.Easing.Linear.None, true, 0);
+		tween.onComplete.add(function() {
+			enemyLine.destroy();
+			var i = enemyGroups.indexOf(enemyLine);
+			enemyGroups.splice(i, 1);
+			console.log('\n\ni', typeof i, i, '\n\n');
+		}, this);
+
+		nextWaveTime = game.time.now + nextWaveCooldown;
+	}
+
+
+	function setupEnemy(enemy) {
+		enemy.anchor.x = 0.5;
+		enemy.anchor.y = 0.5;
+		enemy.animations.add('explosion', [0,1,2,3,4,5,6,7,8], 24, true);
+	}
+
+
+	function update() {
+		background.tilePosition.y += 2;
+		clouds.tilePosition.y += 4;
+
+		if (!player.alive) return;
+
+		player.body.velocity.setTo(0, 0);
+		if (cursors.left.isDown) {
+			player.body.velocity.x = -200;
+		} else if (cursors.right.isDown) {
+			player.body.velocity.x = 200;
+		}
+
+		if (firing && player.alive) {
+			fireBullet();
+		}
+
+		if (game.time.now > nextWaveTime) {
+			spawnEnemies();
+		}
+
+		// if (game.time.now > enemyFireCooldown) {
+		// 	enemyFires();
+		// }
+
+
+		enemyGroups.forEach(function(enemyLine) {
+			game.physics.arcade.overlap(bullets, enemyLine, collisionHandler, null, this);
+			game.physics.arcade.overlap(enemyLine, player, enemyHitsPlayer, null, this);
+		});
+		// game.physics.arcade.overlap(enemyBullets, player, enemyHitsPlayer, null, this);
+	}
+
+	function fireBullet() {
+		if (game.time.now > nextFireTime) {
+			var bullet = bullets.getFirstExists(false);
+			if (bullet) {
+				bullet.reset(player.x, player.y + 8);
+				bullet.body.velocity.y = -400;
+				nextFireTime = game.time.now + fireCooldown;
+			}
+		}
+	}
+
+	// function enemyFires() {
+	// 	var enemyBullet = enemyBullets.getFirstExists(false);
+	// 	livingEnemies.length = 0;
+	// 	enemies.forEachAlive(function(enemy) {
+	// 		livingEnemies.push(enemy);
+	// 	});
+	// 	if (enemyBullet && livingEnemies.length > 0) {
+	// 		var random = game.rnd.integerInRange(0, livingEnemies.length - 1);
+	// 		var shooter = livingEnemies[random];
+	// 		enemyBullet.reset(shooter.body.x, shooter.body.y);
+	// 		game.physics.arcade.moveToObject(enemyBullet, player, 120);
+	// 		enemyFireCooldown = game.time.now + 2000;
+	// 	}
+	// }
+
+	function collisionHandler(bullet, enemy) {
+		bullet.kill();
+		enemy.kill();
+
+		score += 20;
+		scoreText.text = scoreString + score;
+
+		var explosion = explosions.getFirstExists(false);
+		explosion.reset(enemy.body.x, enemy.body.y);
+		explosion.play('explosion', 30, false, true);
+	}
+
+	function enemyHitsPlayer(player, bullet) {
+		bullet.kill();
+		player.kill();
+
+		var explosion = explosions.getFirstExists(false);
+		explosion.reset(player.body.x, player.body.y);
+		explosion.play('explosion', 30, false, true);
+
+		enemyBullets.callAll('kill', this);
+		stateText.text = 'GAME OVER,\nClick to restart';
+		stateText.visible = true;
+
+		game.input.onTap.addOnce(restart, this);
+	}
+
+	function restart() {
+		enemyGroups.forEach(function(enemyLine) {
+			enemyLine.destroy();
+		});
+		spawnEnemies();
+
+		player.revive();
+		stateText.visible = false;
+	}
+
+
+	function render() {
+		// body...
+	}
+</script>
+</body>
+</html>
